@@ -12,18 +12,11 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser
 from tkinter.scrolledtext import ScrolledText
 import logging
-from pathlib import Path
-from typing import List, Optional, Tuple
-import threading
+from typing import List
 
 # PDF processing libraries
 import PyPDF2
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.lib.units import inch
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from PIL import Image, ImageTk
 import fitz  # PyMuPDF
 from pdf2image import convert_from_path
 
@@ -211,8 +204,13 @@ class PDFEditor:
             
             page = doc[page_num]
             
-            # Parse color
+            # Parse and validate color
             color_hex = self.text_color.get().lstrip('#')
+            if len(color_hex) != 6 or not all(c in '0123456789abcdefABCDEF' for c in color_hex):
+                messagebox.showerror("خطأ - Error", "صيغة اللون غير صحيحة. استخدم #RRGGBB\nInvalid color format. Use #RRGGBB")
+                doc.close()
+                return
+            
             color_rgb = tuple(int(color_hex[i:i+2], 16) / 255 for i in (0, 2, 4))
             
             # Add text

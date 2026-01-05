@@ -1,8 +1,8 @@
-PyPDF2
-reportlab
-Pillow
-pdf2image
-PyMuPDF
-arabic-reshaper
-python-bidi
-pyinstaller
+PyPDF2>=3.0.0
+reportlab>=4.0.0
+Pillow>=10.0.0
+pdf2image>=1.16.0
+PyMuPDF>=1.23.0
+arabic-reshaper>=3.0.0
+python-bidi>=0.4.2
+pyinstaller>=6.0.0

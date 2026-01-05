@@ -33,6 +33,16 @@ def build_exe():
     print("\nبدء بناء ملف EXE... - Starting EXE build...")
     print("=" * 60)
     
+    # Check if LICENSE file exists
+    add_data_args = []
+    if os.path.exists('LICENSE'):
+        if sys.platform == 'win32':
+            add_data_args.append('--add-data=LICENSE;.')
+        else:
+            add_data_args.append('--add-data=LICENSE:.')
+    else:
+        print("⚠ Warning: LICENSE file not found, skipping...")
+    
     # PyInstaller command with options
     cmd = [
         'pyinstaller',
@@ -45,22 +55,17 @@ def build_exe():
         # Add hidden imports for packages that might not be detected
         '--hidden-import=PyPDF2',
         '--hidden-import=reportlab',
-        '--hidden-import=PIL',
         '--hidden-import=fitz',
         '--hidden-import=pdf2image',
         '--hidden-import=arabic_reshaper',
         '--hidden-import=bidi',
         
-        # Additional options
-        '--add-data=LICENSE;.',         # Include license file (Windows syntax)
-        
         # Main script
         'pdf_editor.py'
     ]
     
-    # Adjust add-data syntax for Linux/Mac
-    if sys.platform != 'win32':
-        cmd = [arg.replace(';', ':') if '--add-data' in arg else arg for arg in cmd]
+    # Add LICENSE file if it exists
+    cmd[8:8] = add_data_args
     
     print(f"تنفيذ الأمر - Executing command: {' '.join(cmd)}\n")
     
