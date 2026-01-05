@@ -1,0 +1,8 @@
+PyPDF2
+reportlab
+Pillow
+pdf2image
+PyMuPDF
+arabic-reshaper
+python-bidi
+pyinstaller
