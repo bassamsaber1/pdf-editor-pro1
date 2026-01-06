@@ -16,13 +16,18 @@ from typing import List
 
 # PDF processing libraries
 import PyPDF2
-from reportlab.pdfgen import canvas
 import fitz  # PyMuPDF
 from pdf2image import convert_from_path
 
 # Arabic text support
 import arabic_reshaper
 from bidi.algorithm import get_display
+
+# Constants
+WATERMARK_DEFAULT_FONT_SIZE = 60
+WATERMARK_DEFAULT_COLOR = (0.7, 0.7, 0.7)  # Gray
+WATERMARK_DEFAULT_ROTATION = 45  # degrees
+WATERMARK_SIZE_RATIO = 0.3  # 30% of page size
 
 # Configure logging
 logging.basicConfig(
@@ -193,38 +198,36 @@ class PDFEditor:
             # Create output path
             output_path = pdf_path.replace('.pdf', '_with_text.pdf')
             
-            # Open existing PDF
-            doc = fitz.open(pdf_path)
-            page_num = self.text_page_num.get() - 1
-            
-            if page_num >= len(doc):
-                messagebox.showerror("خطأ - Error", f"رقم الصفحة غير صحيح. الملف يحتوي على {len(doc)} صفحة فقط")
-                doc.close()
-                return
-            
-            page = doc[page_num]
-            
-            # Parse and validate color
-            color_hex = self.text_color.get().lstrip('#')
-            if len(color_hex) != 6 or not all(c in '0123456789abcdefABCDEF' for c in color_hex):
-                messagebox.showerror("خطأ - Error", "صيغة اللون غير صحيحة. استخدم #RRGGBB\nInvalid color format. Use #RRGGBB")
-                doc.close()
-                return
-            
-            color_rgb = tuple(int(color_hex[i:i+2], 16) / 255 for i in (0, 2, 4))
-            
-            # Add text
-            point = fitz.Point(self.text_x_pos.get(), self.text_y_pos.get())
-            page.insert_text(
-                point,
-                bidi_text,
-                fontsize=self.text_font_size.get(),
-                color=color_rgb
-            )
-            
-            # Save
-            doc.save(output_path)
-            doc.close()
+            # Open existing PDF with context manager
+            with fitz.open(pdf_path) as doc:
+                page_num = self.text_page_num.get() - 1
+                
+                if page_num >= len(doc):
+                    messagebox.showerror("خطأ - Error", f"رقم الصفحة غير صحيح. الملف يحتوي على {len(doc)} صفحة فقط")
+                    return
+                
+                page = doc[page_num]
+                
+                # Parse and validate color
+                color_hex = self.text_color.get().lstrip('#')
+                # Check for empty string or invalid format
+                if not color_hex or len(color_hex) != 6 or not all(c in '0123456789abcdefABCDEF' for c in color_hex):
+                    messagebox.showerror("خطأ - Error", "صيغة اللون غير صحيحة. استخدم RRGGBB أو #RRGGBB\nInvalid color format. Use RRGGBB or #RRGGBB")
+                    return
+                
+                color_rgb = tuple(int(color_hex[i:i+2], 16) / 255 for i in (0, 2, 4))
+                
+                # Add text
+                point = fitz.Point(self.text_x_pos.get(), self.text_y_pos.get())
+                page.insert_text(
+                    point,
+                    bidi_text,
+                    fontsize=self.text_font_size.get(),
+                    color=color_rgb
+                )
+                
+                # Save
+                doc.save(output_path)
             
             self.status_var.set("تم بنجاح - Success")
             messagebox.showinfo("نجح - Success", f"تم إضافة النص بنجاح!\nالملف المحفوظ: {output_path}")
@@ -330,31 +333,29 @@ class PDFEditor:
             
             output_path = pdf_path.replace('.pdf', '_with_image.pdf')
             
-            # Open PDF
-            doc = fitz.open(pdf_path)
-            page_num = self.image_page_num.get() - 1
-            
-            if page_num >= len(doc):
-                messagebox.showerror("خطأ - Error", f"رقم الصفحة غير صحيح. الملف يحتوي على {len(doc)} صفحة فقط")
-                doc.close()
-                return
-            
-            page = doc[page_num]
-            
-            # Define rectangle for image
-            rect = fitz.Rect(
-                self.image_x_pos.get(),
-                self.image_y_pos.get(),
-                self.image_x_pos.get() + self.image_width.get(),
-                self.image_y_pos.get() + self.image_height.get()
-            )
-            
-            # Insert image
-            page.insert_image(rect, filename=image_path)
-            
-            # Save
-            doc.save(output_path)
-            doc.close()
+            # Open PDF with context manager
+            with fitz.open(pdf_path) as doc:
+                page_num = self.image_page_num.get() - 1
+                
+                if page_num >= len(doc):
+                    messagebox.showerror("خطأ - Error", f"رقم الصفحة غير صحيح. الملف يحتوي على {len(doc)} صفحة فقط")
+                    return
+                
+                page = doc[page_num]
+                
+                # Define rectangle for image
+                rect = fitz.Rect(
+                    self.image_x_pos.get(),
+                    self.image_y_pos.get(),
+                    self.image_x_pos.get() + self.image_width.get(),
+                    self.image_y_pos.get() + self.image_height.get()
+                )
+                
+                # Insert image
+                page.insert_image(rect, filename=image_path)
+                
+                # Save
+                doc.save(output_path)
             
             self.status_var.set("تم بنجاح - Success")
             messagebox.showinfo("نجح - Success", f"تم إضافة الصورة بنجاح!\nالملف المحفوظ: {output_path}")
@@ -633,16 +634,57 @@ class PDFEditor:
             self.extract_pdf_path.set(filename)
     
     def parse_page_range(self, range_str: str) -> List[int]:
-        """Parse page range string like '1-5, 7, 9-12' into list of page numbers"""
+        """Parse page range string like '1-5, 7, 9-12' into list of page numbers
+        
+        Raises:
+            ValueError: If the input format is invalid or contains non-numeric/negative values
+        """
         pages = []
+        
+        # Check for empty input
+        if not range_str or not range_str.strip():
+            raise ValueError("لم يتم إدخال نطاق صفحات صالح / No valid page range was entered")
+        
         parts = range_str.replace(' ', '').split(',')
         
         for part in parts:
+            if not part:  # Skip empty parts
+                continue
+                
             if '-' in part:
-                start, end = part.split('-')
-                pages.extend(range(int(start), int(end) + 1))
+                # Range like "1-5"
+                subparts = part.split('-')
+                if len(subparts) != 2 or not subparts[0] or not subparts[1]:
+                    raise ValueError(f"نطاق صفحات غير صالح: '{part}' / Invalid page range segment: '{part}'")
+                
+                start_str, end_str = subparts
+                if not start_str.isdigit() or not end_str.isdigit():
+                    raise ValueError(f"يجب أن تكون أرقام الصفحات أرقامًا صحيحة: '{part}' / "
+                                   f"Page numbers must be integers in segment: '{part}'")
+                
+                start, end = int(start_str), int(end_str)
+                if start <= 0 or end <= 0:
+                    raise ValueError("يجب أن تكون أرقام الصفحات أكبر من الصفر / "
+                                   "Page numbers must be greater than zero")
+                if start > end:
+                    raise ValueError(f"بداية النطاق أكبر من نهايته: '{part}' / "
+                                   f"Range start is greater than end in segment: '{part}'")
+                
+                pages.extend(range(start, end + 1))
             else:
-                pages.append(int(part))
+                # Single page number
+                if not part.isdigit():
+                    raise ValueError(f"رقم صفحة غير صالح: '{part}' / Invalid page number: '{part}'")
+                
+                page_num = int(part)
+                if page_num <= 0:
+                    raise ValueError("يجب أن تكون أرقام الصفحات أكبر من الصفر / "
+                                   "Page numbers must be greater than zero")
+                
+                pages.append(page_num)
+        
+        if not pages:
+            raise ValueError("لم يتم العثور على أرقام صفحات صالحة / No valid page numbers were found")
         
         return sorted(set(pages))  # Remove duplicates and sort
     
@@ -816,62 +858,61 @@ class PDFEditor:
             self.root.update()
             
             output_path = pdf_path.replace('.pdf', '_watermarked.pdf')
-            doc = fitz.open(pdf_path)
             
-            opacity = self.watermark_opacity.get()
-            
-            if self.watermark_type.get() == "text":
-                # Text watermark
-                text = self.watermark_text.get()
-                if not text:
-                    messagebox.showerror("خطأ - Error", "الرجاء إدخال نص العلامة المائية")
-                    return
+            with fitz.open(pdf_path) as doc:
+                opacity = self.watermark_opacity.get()
                 
-                # Process Arabic text
-                reshaped_text = arabic_reshaper.reshape(text)
-                bidi_text = get_display(reshaped_text)
+                if self.watermark_type.get() == "text":
+                    # Text watermark
+                    text = self.watermark_text.get()
+                    if not text:
+                        messagebox.showerror("خطأ - Error", "الرجاء إدخال نص العلامة المائية")
+                        return
+                    
+                    # Process Arabic text
+                    reshaped_text = arabic_reshaper.reshape(text)
+                    bidi_text = get_display(reshaped_text)
+                    
+                    for page in doc:
+                        # Get page dimensions
+                        rect = page.rect
+                        
+                        # Add watermark at center
+                        point = fitz.Point(rect.width / 2, rect.height / 2)
+                        
+                        # Insert text with rotation
+                        page.insert_text(
+                            point,
+                            bidi_text,
+                            fontsize=WATERMARK_DEFAULT_FONT_SIZE,
+                            color=WATERMARK_DEFAULT_COLOR,
+                            rotate=WATERMARK_DEFAULT_ROTATION,
+                            opacity=opacity
+                        )
+                else:
+                    # Image watermark
+                    image_path = self.watermark_image_path.get()
+                    if not image_path or not os.path.exists(image_path):
+                        messagebox.showerror("خطأ - Error", "الرجاء اختيار صورة العلامة المائية")
+                        return
+                    
+                    for page in doc:
+                        # Get page dimensions
+                        rect = page.rect
+                        
+                        # Calculate watermark size
+                        wm_width = rect.width * WATERMARK_SIZE_RATIO
+                        wm_height = rect.height * WATERMARK_SIZE_RATIO
+                        
+                        # Center position
+                        x = (rect.width - wm_width) / 2
+                        y = (rect.height - wm_height) / 2
+                        
+                        wm_rect = fitz.Rect(x, y, x + wm_width, y + wm_height)
+                        
+                        page.insert_image(wm_rect, filename=image_path, opacity=opacity)
                 
-                for page in doc:
-                    # Get page dimensions
-                    rect = page.rect
-                    
-                    # Add watermark at center
-                    point = fitz.Point(rect.width / 2, rect.height / 2)
-                    
-                    # Insert text with rotation
-                    page.insert_text(
-                        point,
-                        bidi_text,
-                        fontsize=60,
-                        color=(0.7, 0.7, 0.7),
-                        rotate=45,
-                        opacity=opacity
-                    )
-            else:
-                # Image watermark
-                image_path = self.watermark_image_path.get()
-                if not image_path or not os.path.exists(image_path):
-                    messagebox.showerror("خطأ - Error", "الرجاء اختيار صورة العلامة المائية")
-                    return
-                
-                for page in doc:
-                    # Get page dimensions
-                    rect = page.rect
-                    
-                    # Calculate watermark size (30% of page)
-                    wm_width = rect.width * 0.3
-                    wm_height = rect.height * 0.3
-                    
-                    # Center position
-                    x = (rect.width - wm_width) / 2
-                    y = (rect.height - wm_height) / 2
-                    
-                    wm_rect = fitz.Rect(x, y, x + wm_width, y + wm_height)
-                    
-                    page.insert_image(wm_rect, filename=image_path, opacity=opacity)
-            
-            doc.save(output_path)
-            doc.close()
+                doc.save(output_path)
             
             self.status_var.set("تم بنجاح - Success")
             messagebox.showinfo("نجح - Success", f"تم إضافة العلامة المائية بنجاح!\nالملف المحفوظ: {output_path}")
@@ -988,7 +1029,7 @@ def main():
     """Main entry point for the application"""
     try:
         root = tk.Tk()
-        app = PDFEditor(root)
+        PDFEditor(root)
         root.mainloop()
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
